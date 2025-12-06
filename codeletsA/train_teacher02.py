@@ -18,7 +18,8 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from PIL import Image
 
-from linear_ops import load_fixed_A
+from linear_ops import load_fixed_A, Ax, ATz, grad_f, estimate_spectral_norm
+from denoisers_bank import make_general_only
 
 
 class PlacesDataset(Dataset):
@@ -90,16 +91,8 @@ class UNetTeacher(nn.Module):
 
 
 def compute_state(x: torch.Tensor, A: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    # Simple 4-dim state: t=0, residual norm, grad norm, dx=0
-    B = x.shape[0]
-    x_flat = x.view(B, -1)
-    r = x_flat @ A.T - y
-    g = r @ A
-    res_norm = torch.norm(r, dim=1)
-    grad_norm = torch.log(torch.norm(g, dim=1) + 1e-8)
-    t = torch.zeros_like(res_norm)
-    dx = torch.zeros_like(res_norm)
-    return torch.stack([t, res_norm, grad_norm, dx], dim=1)
+    # Simple 4-dim state placeholder; actual t/dx are set in loop.
+    raise NotImplementedError
 
 
 def train(args):
@@ -125,18 +118,49 @@ def train(args):
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
     loss_fn = nn.MSELoss()
 
+    # Denoiser (baseline general only) and step size
+    deno = make_general_only(device)[0]
+    eta = 0.9 / (estimate_spectral_norm(A) ** 2 + 1e-8)
+    K = 150  # fixed number of PnP iterations
+
     for epoch in range(args.epochs):
         for step, imgs in enumerate(loader):
             imgs = imgs.to(device)
             Bsz = imgs.shape[0]
-            y = imgs.view(Bsz, -1) @ A.t()
-            y0 = imgs.view(Bsz, -1) @ B.t()
-            state = compute_state(imgs, A, y)
-            pred = net(imgs, state, y)
-            loss = loss_fn(pred, y0)
+            x_true = imgs
+            y = Ax(x_true.view(Bsz, -1), A)  # [B, m]
+            y0 = torch.matmul(x_true.view(Bsz, -1), B.t())  # target missing meas [B, m0]
+
+            # Initialize PnP baseline
+            x = ATz(y, A).view_as(x_true)
+            x_prev = x.clone()
+
+            loss_accum = 0.0
+            for k in range(K):
+                # State features
+                x_flat = x.view(Bsz, -1)
+                r = Ax(x_flat, A) - y
+                g = grad_f(x, A, y)
+                res_norm = torch.norm(r, dim=1) / (torch.norm(y, dim=1) + 1e-8)
+                grad_norm = torch.log(torch.norm(g.view(Bsz, -1), dim=1) + 1e-8)
+                dx = torch.norm(x_flat - x_prev.view(Bsz, -1), dim=1) / (torch.norm(x_prev.view(Bsz, -1), dim=1) + 1e-8)
+                t = torch.full_like(res_norm, k / max(1, K - 1))
+                state = torch.stack([t, res_norm, grad_norm, dx], dim=1)
+
+                # Predict missing measurements
+                pred = net(x, state, y)
+                loss_accum = loss_accum + loss_fn(pred, y0)
+
+                # PnP update (baseline denoiser)
+                x_prev = x
+                x_pred = x - eta * g
+                x = deno(x_pred).clamp(0.0, 1.0)
+
+            loss = loss_accum / K
             opt.zero_grad()
             loss.backward()
             opt.step()
+
             if step % args.log_every == 0:
                 print(f"[epoch {epoch} step {step}] loss={loss.item():.4e}")
             if args.max_steps and step >= args.max_steps:
