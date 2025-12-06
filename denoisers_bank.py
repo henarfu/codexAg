@@ -28,6 +28,12 @@ def _load_dncnn(path: Path | None, device: torch.device, sigma: float) -> Callab
     return fn
 
 
+def make_general_only(device: torch.device) -> List[Callable[[torch.Tensor], torch.Tensor]]:
+    """Return a bank with only the general denoiser (baseline restriction)."""
+    base = Path("RESULTS/generaldenoiser.pth")
+    return [_load_dncnn(base, device, 0.02)]
+
+
 def make_denoiser_bank(device: torch.device, use_targeted: bool = True) -> List[Callable[[torch.Tensor], torch.Tensor]]:
     """Return list of denoisers in high→low sigma order. If use_targeted, use the sigma-targeted set."""
     base = Path("RESULTS")
