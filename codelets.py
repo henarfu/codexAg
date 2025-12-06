@@ -140,4 +140,6 @@ CODELET_FUNCS = {
     "NULL_A": lambda x, A, y, p: codelet_null_A(x, A, y, p),
     "MEAS_SMOOTH_A": lambda x, A, y, p: codelet_meas_smooth(x, A, y, p),
     "GRAPH_A": lambda x, A, y, p: codelet_graph_A(x, A, y, p),
+    # Data-fidelity gradient as a codelet (uses provided grad_f precompute)
+    "DATA": lambda x, A, y, p: p["g_data"],  # expects p["g_data"] already computed
 }
