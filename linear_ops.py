@@ -8,7 +8,7 @@ from pathlib import Path
 
 N_PIX = 3 * 64 * 64
 DEFAULT_SAMPLING = 0.1
-DEFAULT_A_PATH = Path("RESULTS/baselineA.npy")
+DEFAULT_A_PATH = Path("RESULTS/baselineA.npy")  # Extracted SinglePixelCamera operator (shape [3684, 12288])
 FALLBACK_FIXED_RGB = Path("/home/hdsp/Desktop/codexPre3/fixed_A_rgb.npy")
 
 
