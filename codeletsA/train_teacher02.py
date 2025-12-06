@@ -62,28 +62,30 @@ def build_B_teacher02(A: torch.Tensor, ratio: float = 0.2, seed: int = 0) -> tor
 
 
 class UNetTeacher(nn.Module):
-    def __init__(self, m_out: int, state_dim: int = 4, base_channels: int = 32, embed_dim: int = 128, hidden: int = 256):
+    def __init__(self, m_out: int, m_in: int, state_dim: int = 4, base_channels: int = 32, embed_dim: int = 128, hidden: int = 256, y_embed: int = 128):
         super().__init__()
         c = base_channels
         self.enc1 = nn.Sequential(nn.Conv2d(3, c, 3, padding=1), nn.ReLU(), nn.Conv2d(c, c, 3, padding=1), nn.ReLU())
         self.enc2 = nn.Sequential(nn.Conv2d(c, 2*c, 3, stride=2, padding=1), nn.ReLU(), nn.Conv2d(2*c, 2*c, 3, padding=1), nn.ReLU())
         self.enc3 = nn.Sequential(nn.Conv2d(2*c, 4*c, 3, stride=2, padding=1), nn.ReLU(), nn.Conv2d(4*c, 4*c, 3, padding=1), nn.ReLU())
         self.pool = nn.AdaptiveAvgPool2d(1)
+        self.y_proj = nn.Sequential(nn.Linear(m_in, y_embed), nn.ReLU())
         self.mlp = nn.Sequential(
-            nn.Linear(4*c + state_dim, hidden),
+            nn.Linear(4*c + state_dim + y_embed, hidden),
             nn.ReLU(),
             nn.Linear(hidden, embed_dim),
             nn.ReLU(),
             nn.Linear(embed_dim, m_out),
         )
 
-    def forward(self, x: torch.Tensor, state: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, state: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         h1 = self.enc1(x)
         h2 = self.enc2(h1)
         h3 = self.enc3(h2)
         B = x.shape[0]
         g = self.pool(h3).view(B, -1)
-        s = torch.cat([g, state], dim=1)
+        y_emb = self.y_proj(y)
+        s = torch.cat([g, state, y_emb], dim=1)
         return self.mlp(s)
 
 
@@ -119,7 +121,7 @@ def train(args):
     ds = PlacesDataset(args.data_dir, size=64, max_images=args.max_images)
     loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 
-    net = UNetTeacher(m_out=m0, state_dim=4, base_channels=32, embed_dim=128, hidden=256).to(device)
+    net = UNetTeacher(m_out=m0, m_in=A.shape[0], state_dim=4, base_channels=32, embed_dim=128, hidden=256, y_embed=128).to(device)
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
     loss_fn = nn.MSELoss()
 
@@ -130,7 +132,7 @@ def train(args):
             y = imgs.view(Bsz, -1) @ A.t()
             y0 = imgs.view(Bsz, -1) @ B.t()
             state = compute_state(imgs, A, y)
-            pred = net(imgs, state)
+            pred = net(imgs, state, y)
             loss = loss_fn(pred, y0)
             opt.zero_grad()
             loss.backward()
