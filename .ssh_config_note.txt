@@ -1,0 +1,4 @@
+To switch this repo to SSH:
+- Ensure your public key is added in GitHub SSH keys.
+- Set remote: git remote set-url origin git@github.com:henarfu/codexAg.git
+- Test: ssh -T git@github.com
