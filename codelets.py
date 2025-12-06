@@ -67,6 +67,42 @@ def codelet_sparseW(x: torch.Tensor, W, tau_sp: float) -> torch.Tensor:
     return W.inverse(diff)
 
 
+def codelet_null_A(x: torch.Tensor, A: torch.Tensor, _y: torch.Tensor, params: dict) -> torch.Tensor:
+    """A-dependent nullspace shrinkage using a basis U built from the nullspace of A."""
+    B = x.shape[0]
+    x_flat = x.view(B, -1)  # [B, n]
+    U = params["U"]  # [n, q]
+    tau_n = params.get("tau_n", 0.01)
+    c = torch.matmul(x_flat, U)  # [B, q]
+    c_shrunk = torch.sign(c) * torch.clamp(torch.abs(c) - tau_n, min=0.0)
+    diff = c - c_shrunk
+    g_flat = torch.matmul(diff, U.t())  # [B, n]
+    return g_flat.view_as(x)
+
+
+def codelet_meas_smooth(x: torch.Tensor, A: torch.Tensor, y: torch.Tensor, params: dict) -> torch.Tensor:
+    """Smooth residual in measurement space then backproject with A^T."""
+    B = x.shape[0]
+    x_flat = x.view(B, -1)  # [B, n]
+    r = torch.matmul(x_flat, A.t()) - y  # [B, m]
+    W_diag = params["W_diag"]  # [m]
+    r_smooth = r * W_diag.unsqueeze(0)  # [B, m]
+    g_flat = torch.matmul(r_smooth, A)  # [B, n]
+    return g_flat.view_as(x)
+
+
+def codelet_graph_A(x: torch.Tensor, A: torch.Tensor, _y: torch.Tensor, params: dict) -> torch.Tensor:
+    """Apply an A-dependent graph Laplacian L(A) to x (L is sparse or dense)."""
+    B = x.shape[0]
+    x_flat = x.view(B, -1)  # [B, n]
+    L = params["L"]  # [n, n] sparse or dense
+    if L.is_sparse:
+        g_flat = torch.sparse.mm(L.t(), x_flat.t()).t()  # [B, n]
+    else:
+        g_flat = torch.matmul(x_flat, L.t())  # [B, n]
+    return g_flat.view_as(x)
+
+
 def normalize_to_data(g_code: torch.Tensor, g_data: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     """Normalize codelet direction RMS to match data grad RMS."""
     rms_code = torch.sqrt((g_code * g_code).mean(dim=[1, 2, 3], keepdim=True) + eps)
@@ -100,4 +136,8 @@ CODELET_FUNCS = {
     2: lambda x, A, y, p: codelet_graph(x, p["kernel_graph"]),
     3: lambda x, A, y, p: codelet_nullspace(x, p["U"], p["tau_n"]),
     4: lambda x, A, y, p: codelet_sparseW(x, p["W"], p["tau_sp"]),
+    # Named entries for A-dependent codelets
+    "NULL_A": lambda x, A, y, p: codelet_null_A(x, A, y, p),
+    "MEAS_SMOOTH_A": lambda x, A, y, p: codelet_meas_smooth(x, A, y, p),
+    "GRAPH_A": lambda x, A, y, p: codelet_graph_A(x, A, y, p),
 }
