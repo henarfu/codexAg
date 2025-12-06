@@ -1,0 +1,40 @@
+This project must obey the following non-negotiable laws:
+
+1) Fixed forward operator A:
+   - Use the same measurement matrix A for all runs.
+   - Compression ratio is fixed at 0.1 (m = 0.1 * C * H * W).
+   - Image size is fixed at 64x64 (with the given number of channels).
+
+2) Solver settings:
+   - Run exactly 150 iterations for every algorithm.
+   - Use Plug-and-Play PGD with the master update:
+     x_{k+1} = D_phi(x_k - eta_k (grad f(x_k) + lambda_k G_{c_k}(x_k; A, y, theta_{c_k})), sigma_k)
+     where f(x) = 0.5 * ||A x - y||_2^2 and grad f(x) = A^T(Ax - y).
+
+3) Denoiser and baseline fidelity codelet:
+   - The denoiser D_phi is fixed and always applied in every iteration.
+   - The DATA codelet (G_DATA = A^T(Ax - y)) is fixed and always available.
+
+4) Codelet set (must not be changed):
+   Fidelity codelets:
+     - CODELET_DATA (no trainable params)
+     - CODELET_ROBUST_DATA (params: tau_rob > 0, p_rob >= 0.5)
+     - CODELET_PRECOND_DATA (params: coefficients {c_i} on fixed filters K_i)
+     - CODELET_ARES (params: alpha_Ares, beta_Ares)
+   Regularizer codelets:
+     - CODELET_L2 (no params)
+     - CODELET_L1 (no params)
+     - CODELET_TV (param: alpha_tv)
+     - CODELET_GRAPH (no params, fixed Laplacian L)
+     - CODELET_NONLOCAL (no params, fixed nonlocal Laplacian L_NL)
+     - CODELET_SPARSE_W (param: tau_sp, fixed transform W)
+     - CODELET_NULLSPACE (param: tau_n, fixed basis U)
+     - CODELET_BQUAD (no params, fixed B)
+
+5) No deviations:
+   - Do not change A, the compression ratio, the iteration count, or image size.
+   - Do not add or remove codelets beyond the definitions above.
+   - You may change codelet parameters (including fixed operators like K_i, L, L_NL, W, U, B) as part of the experiment, but the measurement matrix A must remain fixed.
+   - The denoiser and DATA codelet are always present in every algorithm.
+
+These laws are mandatory for all implementations in this project.

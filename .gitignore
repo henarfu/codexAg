@@ -1,0 +1,13 @@
+__pycache__/
+.pytest_cache/
+.DS_Store
+.venv/
+*.pth
+*.pt
+*.npy
+RESULTS/
+recon_out/
+*.png
+*.jpg
+*.jpeg
+*.csv
