@@ -106,18 +106,21 @@ def train(args):
             Bsz = imgs.shape[0]
             y = Ax(imgs.view(Bsz, -1), A)          # [B, mA]
             y0 = torch.matmul(imgs.view(Bsz, -1), B.t())  # [B, m0]
-            # Fixed first map: z = B A^T y
-            z_flat = torch.matmul(y, torch.matmul(A, B.t())).detach()  # [B, m0]
+            # Use y directly as input
             if args.arch == "unet":
-                # reshape z into 3-channel 64x64 image (padding zeros if needed)
-                z_img = z_flat.new_zeros((Bsz, 3, 64, 64))
-                # fill flattened values into first channel
-                val = z_flat[:, : 64 * 64].reshape(Bsz, 1, 64, 64)
-                z_img[:, 0, :, :] = val
+                # map y (mA) into 3x64x64 by padding to 4096 and filling channel 0
+                z_img = torch.zeros((Bsz, 3, 64, 64), device=device, dtype=y.dtype)
+                pad_len = 64 * 64
+                if y.shape[1] < pad_len:
+                    padded = torch.zeros((Bsz, pad_len), device=device, dtype=y.dtype)
+                    padded[:, : y.shape[1]] = y
+                else:
+                    padded = y[:, :pad_len]
+                z_img[:, 0] = padded.reshape(Bsz, 64, 64)
                 pred = net(z_img).reshape(Bsz, -1)
                 pred = pred[:, : m0]
             else:
-                pred = net(z_flat)
+                pred = net(y)
             loss = loss_fn(pred, y0)
             running_loss += loss.item() * Bsz
             count += Bsz
