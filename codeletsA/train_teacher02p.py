@@ -70,6 +70,8 @@ def train(args):
     loss_fn = nn.MSELoss()
 
     for epoch in range(args.epochs):
+        running_loss = 0.0
+        count = 0
         for step, imgs in enumerate(loader):
             imgs = imgs.to(device)
             Bsz = imgs.shape[0]
@@ -77,6 +79,8 @@ def train(args):
             y0 = torch.matmul(imgs.view(Bsz, -1), B.t())  # [B, m0]
             pred = net(y)
             loss = loss_fn(pred, y0)
+            running_loss += loss.item() * Bsz
+            count += Bsz
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -86,6 +90,8 @@ def train(args):
                 break
         if args.max_steps and step >= args.max_steps:
             break
+        if count > 0:
+            print(f"[epoch {epoch}] avg_loss={running_loss / count:.4e}")
 
     ckpt = {"model": net.state_dict(), "B_path": str(B_path), "ratio": args.ratio, "arch": "YOnlyTeacher"}
     out_path = Path(args.out)
@@ -99,8 +105,8 @@ def parse_args():
     p.add_argument("--data-dir", type=str, default="/home/hdsp/Documents/Henry/pnp/data/places/train")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--num-workers", type=int, default=4)
-    p.add_argument("--epochs", type=int, default=5)
-    p.add_argument("--max-images", type=int, default=500)
+    p.add_argument("--epochs", type=int, default=50)
+    p.add_argument("--max-images", type=int, default=10000)
     p.add_argument("--max-steps", type=int, default=None)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--hidden", type=int, default=512)
