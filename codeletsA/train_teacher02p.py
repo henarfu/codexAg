@@ -49,6 +49,21 @@ class YOnlyTeacher(nn.Module):
         return self.net(y)
 
 
+class TransformerTeacher(nn.Module):
+    def __init__(self, m_in: int, m_out: int, d_model: int = 128, nhead: int = 4, depth: int = 2):
+        super().__init__()
+        self.proj = nn.Linear(m_in, d_model)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=4 * d_model, dropout=0.0, batch_first=True)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=depth)
+        self.head = nn.Linear(d_model, m_out)
+
+    def forward(self, y: torch.Tensor) -> torch.Tensor:
+        # Treat whole y as a single token after projection
+        z = self.proj(y).unsqueeze(1)  # [B,1,d_model]
+        h = self.encoder(z)  # [B,1,d_model]
+        return self.head(h.squeeze(1))
+
+
 def train(args):
     device = torch.device(args.device if args.device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
     A = load_fixed_A().to(device)
@@ -65,8 +80,18 @@ def train(args):
     ds = PlacesDataset(args.data_dir, size=64, max_images=args.max_images)
     loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 
-    net = YOnlyTeacher(m_in=m, m_out=m0, hidden=args.hidden).to(device)
+    if args.arch == "mlp":
+        net = YOnlyTeacher(m_in=m, m_out=m0, hidden=args.hidden).to(device)
+    else:
+        net = TransformerTeacher(m_in=m, m_out=m0, d_model=args.d_model, nhead=args.nhead, depth=args.depth).to(device)
+
+    if args.resume and Path(args.resume).exists():
+        ckpt = torch.load(args.resume, map_location=device)
+        net.load_state_dict(ckpt["model"])
+        print(f"Resumed weights from {args.resume}")
+
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, args.epochs * len(loader)))
     loss_fn = nn.MSELoss()
 
     for epoch in range(args.epochs):
@@ -84,6 +109,7 @@ def train(args):
             opt.zero_grad()
             loss.backward()
             opt.step()
+            scheduler.step()
             if step % args.log_every == 0:
                 print(f"[epoch {epoch} step {step}] loss={loss.item():.4e}")
             if args.max_steps and step >= args.max_steps:
@@ -110,10 +136,15 @@ def parse_args():
     p.add_argument("--max-steps", type=int, default=None)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--hidden", type=int, default=512)
+    p.add_argument("--arch", type=str, default="mlp", choices=["mlp", "transformer"])
+    p.add_argument("--d-model", type=int, default=128)
+    p.add_argument("--nhead", type=int, default=4)
+    p.add_argument("--depth", type=int, default=2)
     p.add_argument("--ratio", type=float, default=0.2)
     p.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"])
     p.add_argument("--B-path", type=str, default="RESULTS/B_teacher02.npy")
     p.add_argument("--out", type=str, default="RESULTS/teacher02p.pt")
+    p.add_argument("--resume", type=str, default=None)
     p.add_argument("--log-every", type=int, default=20)
     return p.parse_args()
 
