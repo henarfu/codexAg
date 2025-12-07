@@ -13,6 +13,7 @@ from torchvision import transforms
 from PIL import Image
 
 from linear_ops import load_fixed_A, Ax, estimate_spectral_norm
+from codeletsA.unet_leon import UNetLeon
 
 
 class PlacesDataset(Dataset):
@@ -81,9 +82,12 @@ def train(args):
     loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
 
     if args.arch == "mlp":
-        net = YOnlyTeacher(m_in=m, m_out=m0, hidden=args.hidden).to(device)
-    else:
-        net = TransformerTeacher(m_in=m, m_out=m0, d_model=args.d_model, nhead=args.nhead, depth=args.depth).to(device)
+        net = YOnlyTeacher(m_in=B.shape[0], m_out=m0, hidden=args.hidden).to(device)
+    elif args.arch == "transformer":
+        net = TransformerTeacher(m_in=B.shape[0], m_out=m0, d_model=args.d_model, nhead=args.nhead, depth=args.depth).to(device)
+    else:  # unet_leon
+        # Expect y to be reshaped into image-like input; here we keep using flattened measurements and project to 3-channel map
+        net = UNetLeon(n_channels=3, base_channel=args.base_channel).to(device)
 
     if args.resume and Path(args.resume).exists():
         ckpt = torch.load(args.resume, map_location=device)
@@ -100,9 +104,20 @@ def train(args):
         for step, imgs in enumerate(loader):
             imgs = imgs.to(device)
             Bsz = imgs.shape[0]
-            y = Ax(imgs.view(Bsz, -1), A)          # [B, m]
+            y = Ax(imgs.view(Bsz, -1), A)          # [B, mA]
             y0 = torch.matmul(imgs.view(Bsz, -1), B.t())  # [B, m0]
-            pred = net(y)
+            # Fixed first map: z = B A^T y
+            z_flat = torch.matmul(y, torch.matmul(A, B.t())).detach()  # [B, m0]
+            if args.arch == "unet":
+                # reshape z into 3-channel 64x64 image (padding zeros if needed)
+                z_img = z_flat.new_zeros((Bsz, 3, 64, 64))
+                # fill flattened values into first channel
+                val = z_flat[:, : 64 * 64].reshape(Bsz, 1, 64, 64)
+                z_img[:, 0, :, :] = val
+                pred = net(z_img).reshape(Bsz, -1)
+                pred = pred[:, : m0]
+            else:
+                pred = net(z_flat)
             loss = loss_fn(pred, y0)
             running_loss += loss.item() * Bsz
             count += Bsz
@@ -136,7 +151,7 @@ def parse_args():
     p.add_argument("--max-steps", type=int, default=None)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--hidden", type=int, default=512)
-    p.add_argument("--arch", type=str, default="mlp", choices=["mlp", "transformer"])
+    p.add_argument("--arch", type=str, default="mlp", choices=["mlp", "transformer", "unet"])
     p.add_argument("--d-model", type=int, default=128)
     p.add_argument("--nhead", type=int, default=4)
     p.add_argument("--depth", type=int, default=2)
