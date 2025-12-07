@@ -155,6 +155,7 @@ def parse_args():
     p.add_argument("--d-model", type=int, default=128)
     p.add_argument("--nhead", type=int, default=4)
     p.add_argument("--depth", type=int, default=2)
+    p.add_argument("--base-channel", type=int, default=64)
     p.add_argument("--ratio", type=float, default=0.2)
     p.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"])
     p.add_argument("--B-path", type=str, default="RESULTS/B_teacher02.npy")
