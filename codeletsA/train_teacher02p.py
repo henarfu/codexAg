@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 import numpy as np
 
@@ -12,6 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from PIL import Image
 
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 from linear_ops import load_fixed_A, Ax, estimate_spectral_norm
 from codeletsA.unet_leon import UNetLeon
 
@@ -95,7 +97,10 @@ def train(args):
         print(f"Resumed weights from {args.resume}")
 
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, args.epochs * len(loader)))
+    if args.scheduler == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, args.epochs * len(loader)))
+    else:
+        scheduler = None
     loss_fn = nn.MSELoss()
 
     for epoch in range(args.epochs):
@@ -127,7 +132,8 @@ def train(args):
             opt.zero_grad()
             loss.backward()
             opt.step()
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
             if step % args.log_every == 0:
                 print(f"[epoch {epoch} step {step}] loss={loss.item():.4e}")
             if args.max_steps and step >= args.max_steps:
@@ -165,6 +171,7 @@ def parse_args():
     p.add_argument("--out", type=str, default="RESULTS/teacher02p.pt")
     p.add_argument("--resume", type=str, default=None)
     p.add_argument("--log-every", type=int, default=20)
+    p.add_argument("--scheduler", type=str, default="cosine", choices=["cosine", "none"])
     return p.parse_args()
 
 

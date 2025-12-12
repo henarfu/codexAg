@@ -27,6 +27,7 @@ from codelets_custom import (
     codelet_nullspace,
 )
 from tune_and_probabilities import make_fixed_operators
+from wandb_utils import init_wandb
 
 
 def load_images(folder, size, device, limit=None, offset=0):
@@ -165,7 +166,7 @@ def compute_horizon_labels(traj_states, codelets, alg_names, data_fid, prior, A,
     return torch.tensor(labels, dtype=torch.long)
 
 
-def train_nets(device, size=64, iters=150, alpha=1.5, lambd=5e-4, num_images=5, epochs=5, hidden=128, horizon=3):
+def train_nets(device, size=64, iters=150, alpha=1.5, lambd=5e-4, num_images=5, epochs=5, hidden=128, horizon=3, run=None):
     ops = make_fixed_operators(size, device)
     codelets = {
         "ROBUST_DATA": {"fn": codelet_robust_data, "params": {"tau_rob": 0.1, "p_rob": 1.2, "lambda": 1.5, "step_mul": 0.5}},
@@ -214,7 +215,10 @@ def train_nets(device, size=64, iters=150, alpha=1.5, lambd=5e-4, num_images=5, 
             loss.backward()
             opt.step()
             total += loss.item() * xb.size(0)
-        print(f"[train] epoch {ep} loss {total / len(dataset):.4f}")
+        avg_loss = total / len(dataset)
+        print(f"[train] epoch {ep} loss {avg_loss:.4f}")
+        if run is not None:
+            run.log({"train/loss": avg_loss, "train/epoch": ep})
 
     out_path = Path("RESULTS/nets_weights.pth")
     torch.save({"model": model.state_dict(), "algs": alg_names}, out_path)
@@ -222,7 +226,7 @@ def train_nets(device, size=64, iters=150, alpha=1.5, lambd=5e-4, num_images=5, 
     return model, alg_names
 
 
-def run_policy(model, alg_names, device, size=64, iters=150, alpha=1.5, lambd=5e-4, num_images=2):
+def run_policy(model, alg_names, device, size=64, iters=150, alpha=1.5, lambd=5e-4, num_images=2, run=None):
     ops = make_fixed_operators(size, device)
     codelets = {
         "ROBUST_DATA": {"fn": codelet_robust_data, "params": {"tau_rob": 0.1, "p_rob": 1.2, "lambda": 1.5, "step_mul": 0.5}},
@@ -290,6 +294,14 @@ def run_policy(model, alg_names, device, size=64, iters=150, alpha=1.5, lambd=5e
 
             print(f"[eval] image {idx}: NetS PSNR {psnr_nets[-1]:.2f}, baseline {psnr_base[-1]:.2f}")
     print(f"NetS avg PSNR: {sum(psnr_nets)/len(psnr_nets):.2f}, baseline avg: {sum(psnr_base)/len(psnr_base):.2f}")
+    if run is not None:
+        run.log(
+            {
+                "eval/nets_psnr": sum(psnr_nets) / len(psnr_nets),
+                "eval/baseline_psnr": sum(psnr_base) / len(psnr_base),
+                "eval/images": len(psnr_nets),
+            }
+        )
 
 
 def main():
@@ -303,8 +315,12 @@ def main():
     parser.add_argument("--size", type=int, default=64, help="Image size (must respect the law).")
     parser.add_argument("--iters", type=int, default=150, help="PGD iterations per image (set 1 to remove horizon).")
     parser.add_argument("--horizon", type=int, default=3, help="Horizon length for label generation (3 or 4).")
+    parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging.")
+    parser.add_argument("--wandb-project", type=str, default="codexAgemini", help="wandb project name.")
+    parser.add_argument("--wandb-run-name", type=str, default=None, help="Optional wandb run name.")
     args = parser.parse_args()
 
+    run = init_wandb(args.wandb, args.wandb_project, args.wandb_run_name, vars(args))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, algs = train_nets(
         device,
@@ -314,6 +330,7 @@ def main():
         epochs=args.epochs,
         hidden=args.hidden,
         horizon=args.horizon,
+        run=run,
     )
     run_policy(
         model,
@@ -322,7 +339,10 @@ def main():
         size=args.size,
         iters=args.iters,
         num_images=args.eval_images,
+        run=run,
     )
+    if run is not None:
+        run.finish()
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from denoisers_bank import make_denoiser_bank, apply_denoisers
 from codelets import apply_codelet_batch, normalize_to_data, LinearTransform
 from image_encoder import ImageEncoder
 from router import CodeletDenoiserRouter, extract_scalar_features, st_gumbel_onehot
+from wandb_utils import init_wandb
 
 LAMBDA_BINS = [0.0, 0.03, 0.1, 0.3, 1.0]
 
@@ -89,6 +90,13 @@ def train(args):
 
     steps_per_epoch = math.ceil(len(loader))
     tau_start, tau_end = 1.0, 0.3
+    global_step = 0
+    run = init_wandb(
+        args.wandb,
+        args.wandb_project,
+        args.wandb_run_name,
+        {"eta": eta, **vars(args)},
+    )
 
     for epoch in range(args.epochs):
         for step, imgs in enumerate(loader):
@@ -124,9 +132,21 @@ def train(args):
             opt.zero_grad()
             loss.backward()
             opt.step()
+            global_step += 1
+            psnr_val = (10 * torch.log10(torch.tensor(1.0, device=loss.device) / (loss.detach() + 1e-8))).item()
 
             if step % args.log_every == 0:
-                print(f"[epoch {epoch} step {step}/{steps_per_epoch}] loss={loss.item():.4e} tau={tau:.3f}")
+                print(f"[epoch {epoch} step {step}/{steps_per_epoch}] loss={loss.item():.4e} psnr={psnr_val:.2f} tau={tau:.3f}")
+                if run is not None:
+                    run.log(
+                        {
+                            "train/loss": loss.item(),
+                            "train/psnr": psnr_val,
+                            "train/tau": tau,
+                            "train/epoch": epoch,
+                        },
+                        step=global_step,
+                    )
 
     ckpt = {
         "encoder": encoder.state_dict(),
@@ -137,6 +157,8 @@ def train(args):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(ckpt, out_path)
     print(f"Saved router to {out_path}")
+    if run is not None:
+        run.finish()
 
 
 def parse_args():
@@ -153,6 +175,9 @@ def parse_args():
     p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--out", type=str, default="RESULTS/router.pt")
     p.add_argument("--max-images", type=int, default=128, help="Limit number of training images for speed.")
+    p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging.")
+    p.add_argument("--wandb-project", type=str, default="codexAgemini", help="wandb project name.")
+    p.add_argument("--wandb-run-name", type=str, default=None, help="Optional wandb run name.")
     return p.parse_args()
 
 

@@ -6,7 +6,7 @@ This project must obey the following non-negotiable laws:
    - Image size is fixed at 64x64 (with the given number of channels).
 
 2) Solver settings:
-   - Run exactly 150 iterations for every algorithm.
+   - Run exactly 4000 iterations for every algorithm.
    - Use Plug-and-Play PGD with the master update:
      x_{k+1} = D_phi(x_k - eta_k (grad f(x_k) + lambda_k G_{c_k}(x_k; A, y, theta_{c_k})), sigma_k)
      where f(x) = 0.5 * ||A x - y||_2^2 and grad f(x) = A^T(Ax - y).

@@ -18,6 +18,8 @@ from torch.utils.data import Dataset, DataLoader
 sys.path.append("/home/hdsp/Documents/Henry/pnp")
 import deepinv as dinv  # type: ignore
 
+from wandb_utils import init_wandb
+
 
 EXTS = {".jpg", ".jpeg", ".png"}
 
@@ -73,6 +75,7 @@ def train(args):
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     global_step = 0
     sigma_min, sigma_max = args.sigma_min, args.sigma_max
+    run = init_wandb(args.wandb, args.wandb_project, args.wandb_run_name, vars(args))
 
     for epoch in range(args.epochs):
         for clean in loader:
@@ -89,8 +92,14 @@ def train(args):
             opt.step()
 
             global_step += 1
+            psnr_val = (10 * torch.log10(torch.tensor(1.0, device=loss.device) / (loss.detach() + 1e-8))).item()
             if global_step % args.log_every == 0:
-                print(f"[{global_step}] loss={loss.item():.4e} sigma~U[{sigma_min},{sigma_max}]")
+                print(f"[{global_step}] loss={loss.item():.4e} psnr={psnr_val:.2f} sigma~U[{sigma_min},{sigma_max}]")
+                if run is not None:
+                    run.log(
+                        {"train/loss": loss.item(), "train/psnr": psnr_val, "train/epoch": epoch},
+                        step=global_step,
+                    )
             if args.max_steps is not None and global_step >= args.max_steps:
                 break
         if args.max_steps is not None and global_step >= args.max_steps:
@@ -107,6 +116,8 @@ def train(args):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(out, out_path)
     print(f"Saved finetuned denoiser to {out_path} (steps={global_step})")
+    if run is not None:
+        run.finish()
 
 
 def main():
@@ -125,6 +136,9 @@ def main():
     parser.add_argument("--log-every", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=str, default="RESULTS/generaldenoiser.pth")
+    parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging.")
+    parser.add_argument("--wandb-project", type=str, default="codexAgemini", help="wandb project name.")
+    parser.add_argument("--wandb-run-name", type=str, default=None, help="Optional wandb run name.")
     args = parser.parse_args()
     train(args)
 

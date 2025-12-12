@@ -15,6 +15,7 @@ from linear_ops import load_fixed_A, Ax, ATz, grad_f, estimate_spectral_norm
 from denoisers_bank import make_denoiser_bank, apply_denoisers
 from image_encoder import ImageEncoder
 from deno_router import DenoiserRouter, extract_scalar_features, st_gumbel_onehot
+from wandb_utils import init_wandb
 
 
 class FlatImageDataset(Dataset):
@@ -55,6 +56,13 @@ def train(args):
 
     opt = torch.optim.Adam(list(encoder.parameters()) + list(router.parameters()), lr=args.lr)
     tau_start, tau_end = 1.0, 0.3
+    global_step = 0
+    run = init_wandb(
+        args.wandb,
+        args.wandb_project,
+        args.wandb_run_name,
+        {"eta": eta, **vars(args)},
+    )
 
     for epoch in range(args.epochs):
         for step, imgs in enumerate(loader):
@@ -79,14 +87,28 @@ def train(args):
             opt.zero_grad()
             loss.backward()
             opt.step()
+            global_step += 1
+            psnr_val = (10 * torch.log10(torch.tensor(1.0, device=loss.device) / (loss.detach() + 1e-8))).item()
             if step % args.log_every == 0:
-                print(f"[epoch {epoch} step {step}] loss={loss.item():.4e} tau={tau:.3f}")
+                print(f"[epoch {epoch} step {step}] loss={loss.item():.4e} psnr={psnr_val:.2f} tau={tau:.3f}")
+                if run is not None:
+                    run.log(
+                        {
+                            "train/loss": loss.item(),
+                            "train/psnr": psnr_val,
+                            "train/tau": tau,
+                            "train/epoch": epoch,
+                        },
+                        step=global_step,
+                    )
 
     ckpt = {"encoder": encoder.state_dict(), "router": router.state_dict(), "eta": eta}
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(ckpt, out_path)
     print(f"Saved denoiser router to {out_path}")
+    if run is not None:
+        run.finish()
 
 
 def parse_args():
@@ -103,6 +125,9 @@ def parse_args():
     p.add_argument("--log-every", type=int, default=20)
     p.add_argument("--max-images", type=int, default=256)
     p.add_argument("--out", type=str, default="RESULTS/deno_router.pt")
+    p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging.")
+    p.add_argument("--wandb-project", type=str, default="codexAgemini", help="wandb project name.")
+    p.add_argument("--wandb-run-name", type=str, default=None, help="Optional wandb run name.")
     return p.parse_args()
 
 

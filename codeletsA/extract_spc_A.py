@@ -39,7 +39,7 @@ def main():
             A[:, start + i] = y_flat[i]
         if (start // batch) % 10 == 0:
             print(f"Processed columns {start} to {end} / {n}")
-    out = Path('RESULTS/baselineA.npy')
+    out = Path('RESULTS/AA.npy')
     out.parent.mkdir(parents=True, exist_ok=True)
     np.save(out, A)
     print('Saved extracted A to', out)

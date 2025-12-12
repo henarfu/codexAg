@@ -16,7 +16,7 @@ def double_conv_leon(in_channels: int, out_channels: int) -> nn.Sequential:
 
 
 class UNetLeon(nn.Module):
-    def __init__(self, n_channels: int = 3, base_channel: int = 64):
+    def __init__(self, n_channels: int = 3, base_channel: int = 32):
         super().__init__()
         self.dconv_down1 = double_conv_leon(n_channels, base_channel)
         self.dconv_down2 = double_conv_leon(base_channel, base_channel * 2)

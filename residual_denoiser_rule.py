@@ -1,6 +1,6 @@
 """Heuristic denoiser selection driven by residual magnitude (PnP-PSG).
 
-- Uses the fixed sensing matrix `RESULTS/baselineA.npy` (0.1x, 64x64 RGB).
+- Uses the fixed sensing matrix `RESULTS/AA.npy` (0.1x, 64x64 RGB; 1228 rows).
 - Denoiser bank: sigma20/15/10/05/03/025 plus the general model.
 - Rule: higher relative residual -> higher-sigma denoiser; lower residual -> lower sigma.
 - Prints per-iteration residuals and chosen denoiser for one image, plus final PSNR.
