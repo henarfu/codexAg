@@ -18,6 +18,10 @@ try:
     import matplotlib.pyplot as plt
 except Exception:
     plt = None
+try:
+    import wandb
+except Exception:
+    wandb = None
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from linear_ops import load_fixed_A, Ax, estimate_spectral_norm
@@ -181,6 +185,9 @@ def train(args):
 
     history: list[dict[str, float]] = []
 
+    if args.use_wandb and wandb is not None:
+        wandb.init(project=args.wandb_project, config=vars(args), name=args.wandb_run_name or None)
+
     for epoch in range(args.epochs):
         running_loss = 0.0
         count = 0
@@ -227,6 +234,8 @@ def train(args):
             val_mse, val_snr, val_rel, val_psnr = evaluate(val_loader)
             print(f"[val epoch {epoch}] mse={val_mse:.4e} snr={val_snr:.2f}dB psnr={val_psnr:.2f}dB rel_l2={val_rel:.4e}")
             record.update({"val_mse": val_mse, "val_snr_db": val_snr, "val_rel_l2": val_rel, "val_psnr_db": val_psnr})
+        if args.use_wandb and wandb is not None:
+            wandb.log(record)
         history.append(record)
 
     ckpt = {"model": net.state_dict(), "B_path": str(B_path), "ratio": args.ratio, "arch": args.arch}
@@ -272,6 +281,8 @@ def train(args):
             print(f"Saved training curves to {plot_path}")
         elif plt is None:
             print("matplotlib not available; skipped curve plotting")
+    if args.use_wandb and wandb is not None:
+        wandb.finish()
 
 
 def parse_args():
@@ -300,6 +311,9 @@ def parse_args():
     p.add_argument("--val-max-images", type=int, default=1000)
     p.add_argument("--val-every", type=int, default=1)
     p.add_argument("--log-dir", type=str, default="RESULTS/logs_net02p")
+    p.add_argument("--use-wandb", action="store_true", help="Log metrics to Weights & Biases.")
+    p.add_argument("--wandb-project", type=str, default="net02p-training")
+    p.add_argument("--wandb-run-name", type=str, default=None)
     return p.parse_args()
 
 
